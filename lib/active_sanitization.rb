@@ -1,4 +1,5 @@
 require "active_sanitization/version"
+require_relative "tasks/rake_tasks"
 require "active_record"
 require "active_support"
 require 'aws-sdk'
