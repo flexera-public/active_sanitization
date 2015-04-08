@@ -179,6 +179,7 @@ module ActiveSanitization
   def self.upload(compressed_dump_file)
     timestamp = DateTime.now.strftime('%Y%m%d%H%M%S')
     name = "#{self.configuration.app_name}/#{self.configuration.env}/mysql/#{timestamp}/#{File.basename(compressed_dump_file)}"
+    self.log("Uploading to bucket: #{self.configuration.s3_bucket}, path: #{name}")
     file = File.open(compressed_dump_file, 'r')
 
     bucket = get_s3_bucket
@@ -232,9 +233,15 @@ module ActiveSanitization
 
         self.clean_up_temp_db(temp_db)
       end
+
       self.gzip(dump_file)
-      self.upload(compressed_dump_file) if self.configuration.s3_bucket && self.configuration.aws_access_key_id && self.configuration.aws_secret_access_key
-      self.clean_up_files(dump_file, compressed_dump_file) unless self.configuration.s3_bucket && self.configuration.aws_access_key_id && self.configuration.aws_secret_access_key
+
+      if self.configuration.s3_bucket && self.configuration.aws_access_key_id && self.configuration.aws_secret_access_key
+        self.upload(compressed_dump_file)
+      else
+        self.clean_up_files(dump_file, compressed_dump_file)
+      end
+
       self.log("-- DONE --")
     else
       self.log(checks[:error])
@@ -256,7 +263,7 @@ module ActiveSanitization
       return
     end
 
-    self.log('WARNING: this rake task will dump your MySQL DB to tmp, then wipe your DB before importing a snapshot')
+    self.log('WARNING: this rake task will dump your MySQL DB to a file, then wipe your DB before importing a snapshot')
     local_dump_file = "#{File.join(self.configuration.root, "tmp")}/local_data.dump"
 
     # Make copy of local DB just in case something goes wrong
