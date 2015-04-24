@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    active_sanitization (0.1.0)
+    active_sanitization (0.2.0)
       aws-sdk (~> 2.0.33)
 
 GEM
@@ -147,7 +147,7 @@ PLATFORMS
 DEPENDENCIES
   active_sanitization!
   activerecord (~> 4.2.1)
-  bundler (~> 1.8.3)
+  bundler (~> 1.9.1)
   byebug (~> 4.0.4)
   mysql2 (~> 0.3.18)
   pry (~> 0.10.1)
