@@ -106,9 +106,9 @@ ActiveSanitization.configure do |config|
   # The name of your app
   config.app_name = 'super_secret_app'
 
-  # The logger that the gem should use.
+  # The loggers that the gem should use.
   #  This will default to STOUT if non is provided
-  config.logger = Rails.logger
+  config.loggers = [Rails.logger]
 
   # The path to the root of your project
   #  This is required so the database dump can be put in a tmp folder

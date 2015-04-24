@@ -15,7 +15,7 @@ module ActiveSanitization
   end
 
   class Configuration
-    attr_accessor :tables_to_sanitize, :tables_to_truncate, :tables_to_ignore, :sanitization_columns, :s3_bucket, :app_name, :aws_access_key_id, :aws_secret_access_key, :env, :active_record_connection, :db_config, :custom_sanitization, :logger, :root, :s3_bucket_region
+    attr_accessor :tables_to_sanitize, :tables_to_truncate, :tables_to_ignore, :sanitization_columns, :s3_bucket, :app_name, :aws_access_key_id, :aws_secret_access_key, :env, :active_record_connection, :db_config, :custom_sanitization, :loggers, :root, :s3_bucket_region
 
     def initialize
       @tables_to_sanitize = {}
@@ -26,7 +26,7 @@ module ActiveSanitization
       @env = ENV['RACK_ENV'] || ENV['RAILS_ENV']
       @active_record_connection = ActiveRecord::Base.connection
       @root = File.dirname(File.dirname(__FILE__))
-      @logger = Logger.new(STDOUT)
+      @loggers = [Logger.new(STDOUT)]
     end
   end
 
@@ -60,7 +60,9 @@ module ActiveSanitization
   end
 
   def self.log(output)
-    self.configuration.logger.info(output) unless self.configuration.env == 'test'
+    self.configuration.loggers.each do |logger|
+      logger.info(output)
+    end unless self.configuration.env == 'test'
   end
 
   def self.pre_sanitization_checks
