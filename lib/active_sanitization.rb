@@ -171,10 +171,13 @@ module ActiveSanitization
     system("gzip '#{dump_file}'")
   end
 
-  def self.get_s3_bucket
+  def self.get_s3_client
     creds = Aws::Credentials.new(self.configuration.aws_access_key_id, self.configuration.aws_secret_access_key)
-    client = Aws::S3::Client.new(credentials: creds, region: self.configuration.s3_bucket_region)
-    resource = Aws::S3::Resource.new(client: client)
+    Aws::S3::Client.new(credentials: creds, region: self.configuration.s3_bucket_region)
+  end
+
+  def self.get_s3_bucket
+    resource = Aws::S3::Resource.new(client: get_s3_client)
     resource.bucket(self.configuration.s3_bucket)
   end
 
@@ -276,13 +279,12 @@ module ActiveSanitization
       raise "Failed to create a local DB dump. If a previous local dump exists, please delete it and try again."
     end
 
-    # get all the files in the snapshot
-    objects = bucket.objects("#{prefix}/#{timestamp}")
     dump_file = "#{File.join(self.configuration.root, "tmp")}/data.dump"
     compressed_dump_file = "#{dump_file}.gz"
-    self.log("Downloading file to #{compressed_dump_file}")
-    url = objects.first.object.presigned_url(:get, expires_in: 600)
-    system("curl -o #{compressed_dump_file} '#{url}'")
+
+    name =  "#{prefix}/#{timestamp}/data.dump.gz"
+    self.log("Downloading dump from bucket: #{self.configuration.s3_bucket}, path: #{name}")
+    get_s3_client.get_object({ bucket:self.configuration.s3_bucket , key: name }, target: compressed_dump_file)
 
     # reset db
     self.log("Recreating your local DB")
@@ -291,7 +293,8 @@ module ActiveSanitization
 
     # Import data
     self.log("Unzipping and importing data...")
-    system("gunzip -c '#{compressed_dump_file}' | mysql -uroot #{self.configuration.db_config['database']}")
+    self.log("gunzip < #{compressed_dump_file} | mysql -u root #{self.configuration.db_config['database']}")
+    system("gunzip < #{compressed_dump_file} | mysql -u root #{self.configuration.db_config['database']}")
     if $?.exitstatus == 0
       File.delete(compressed_dump_file) if File.exist?(compressed_dump_file)
     else
