@@ -15,7 +15,7 @@ module ActiveSanitization
   end
 
   class Configuration
-    attr_accessor :tables_to_sanitize, :tables_to_truncate, :tables_to_ignore, :sanitization_columns, :s3_bucket, :app_name, :aws_access_key_id, :aws_secret_access_key, :env, :active_record_connection, :db_config, :custom_sanitization, :logger, :root, :s3_bucket_region
+    attr_accessor :tables_to_sanitize, :tables_to_truncate, :tables_to_ignore, :sanitization_columns, :s3_bucket, :app_name, :aws_access_key_id, :aws_secret_access_key, :env, :active_record_connection, :db_config, :custom_sanitization, :loggers, :root, :s3_bucket_region
 
     def initialize
       @tables_to_sanitize = {}
@@ -26,7 +26,7 @@ module ActiveSanitization
       @env = ENV['RACK_ENV'] || ENV['RAILS_ENV']
       @active_record_connection = ActiveRecord::Base.connection
       @root = File.dirname(File.dirname(__FILE__))
-      @logger = Logger.new(STDOUT)
+      @loggers = [Logger.new(STDOUT)]
     end
   end
 
@@ -60,7 +60,9 @@ module ActiveSanitization
   end
 
   def self.log(output)
-    self.configuration.logger.info(output) unless self.configuration.env == 'test'
+    self.configuration.loggers.each do |logger|
+      logger.info(output)
+    end unless self.configuration.env == 'test'
   end
 
   def self.pre_sanitization_checks
@@ -106,7 +108,7 @@ module ActiveSanitization
       raise "Failed to load DB #{self.configuration.db_config} into temp DB #{temp_db}."
     end
 
-    self.log("mysqldump -h #{self.configuration.db_config['host']} -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} --no-data #{self.configuration.db_config['database']} #{self.configuration.tables_to_truncate.keys.join(' ')} | mysql -h #{self.configuration.db_config['host']}  -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} -D #{temp_db}")
+    self.log("mysqldump -h #{self.configuration.db_config['host']} -u #{self.configuration.db_config['username']} --password=XXXXXXXXX --no-data #{self.configuration.db_config['database']} #{self.configuration.tables_to_truncate.keys.join(' ')} | mysql -h #{self.configuration.db_config['host']}  -u #{self.configuration.db_config['username']} --password=XXXXXXXXX -D #{temp_db}")
     system("mysqldump -h #{self.configuration.db_config['host']} -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} --no-data #{self.configuration.db_config['database']} #{self.configuration.tables_to_truncate.keys.join(' ')} | mysql -h #{self.configuration.db_config['host']}  -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} -D #{temp_db}")
     if $?.exitstatus == 0
       self.log("Temp DB created and populated")
@@ -169,16 +171,20 @@ module ActiveSanitization
     system("gzip '#{dump_file}'")
   end
 
-  def self.get_s3_bucket
+  def self.get_s3_client
     creds = Aws::Credentials.new(self.configuration.aws_access_key_id, self.configuration.aws_secret_access_key)
-    client = Aws::S3::Client.new(credentials: creds, region: self.configuration.s3_bucket_region)
-    resource = Aws::S3::Resource.new(client: client)
+    Aws::S3::Client.new(credentials: creds, region: self.configuration.s3_bucket_region)
+  end
+
+  def self.get_s3_bucket
+    resource = Aws::S3::Resource.new(client: get_s3_client)
     resource.bucket(self.configuration.s3_bucket)
   end
 
   def self.upload(compressed_dump_file)
     timestamp = DateTime.now.strftime('%Y%m%d%H%M%S')
     name = "#{self.configuration.app_name}/#{self.configuration.env}/mysql/#{timestamp}/#{File.basename(compressed_dump_file)}"
+    self.log("Uploading to bucket: #{self.configuration.s3_bucket}, path: #{name}")
     file = File.open(compressed_dump_file, 'r')
 
     bucket = get_s3_bucket
@@ -232,9 +238,15 @@ module ActiveSanitization
 
         self.clean_up_temp_db(temp_db)
       end
+
       self.gzip(dump_file)
-      self.upload(compressed_dump_file) if self.configuration.s3_bucket && self.configuration.aws_access_key_id && self.configuration.aws_secret_access_key
-      self.clean_up_files(dump_file, compressed_dump_file) unless self.configuration.s3_bucket && self.configuration.aws_access_key_id && self.configuration.aws_secret_access_key
+
+      if self.configuration.s3_bucket && self.configuration.aws_access_key_id && self.configuration.aws_secret_access_key
+        self.upload(compressed_dump_file)
+      else
+        self.clean_up_files(dump_file, compressed_dump_file)
+      end
+
       self.log("-- DONE --")
     else
       self.log(checks[:error])
@@ -256,7 +268,7 @@ module ActiveSanitization
       return
     end
 
-    self.log('WARNING: this rake task will dump your MySQL DB to tmp, then wipe your DB before importing a snapshot')
+    self.log('WARNING: this rake task will dump your MySQL DB to a file, then wipe your DB before importing a snapshot')
     local_dump_file = "#{File.join(self.configuration.root, "tmp")}/local_data.dump"
 
     # Make copy of local DB just in case something goes wrong
@@ -267,13 +279,12 @@ module ActiveSanitization
       raise "Failed to create a local DB dump. If a previous local dump exists, please delete it and try again."
     end
 
-    # get all the files in the snapshot
-    objects = bucket.objects("#{prefix}/#{timestamp}")
     dump_file = "#{File.join(self.configuration.root, "tmp")}/data.dump"
     compressed_dump_file = "#{dump_file}.gz"
-    self.log("Downloading file to #{compressed_dump_file}")
-    url = objects.first.object.presigned_url(:get, expires_in: 600)
-    system("curl -o #{compressed_dump_file} '#{url}'")
+
+    name =  "#{prefix}/#{timestamp}/data.dump.gz"
+    self.log("Downloading dump from bucket: #{self.configuration.s3_bucket}, path: #{name}")
+    get_s3_client.get_object({ bucket:self.configuration.s3_bucket , key: name }, target: compressed_dump_file)
 
     # reset db
     self.log("Recreating your local DB")
@@ -282,7 +293,8 @@ module ActiveSanitization
 
     # Import data
     self.log("Unzipping and importing data...")
-    system("gunzip -c '#{compressed_dump_file}' | mysql -uroot #{self.configuration.db_config['database']}")
+    self.log("gunzip < #{compressed_dump_file} | mysql -u root #{self.configuration.db_config['database']}")
+    system("gunzip < #{compressed_dump_file} | mysql -u root #{self.configuration.db_config['database']}")
     if $?.exitstatus == 0
       File.delete(compressed_dump_file) if File.exist?(compressed_dump_file)
     else
