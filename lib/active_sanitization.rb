@@ -108,7 +108,7 @@ module ActiveSanitization
       raise "Failed to load DB #{self.configuration.db_config} into temp DB #{temp_db}."
     end
 
-    self.log("mysqldump -h #{self.configuration.db_config['host']} -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} --no-data #{self.configuration.db_config['database']} #{self.configuration.tables_to_truncate.keys.join(' ')} | mysql -h #{self.configuration.db_config['host']}  -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} -D #{temp_db}")
+    self.log("mysqldump -h #{self.configuration.db_config['host']} -u #{self.configuration.db_config['username']} --password=XXXXXXXXX --no-data #{self.configuration.db_config['database']} #{self.configuration.tables_to_truncate.keys.join(' ')} | mysql -h #{self.configuration.db_config['host']}  -u #{self.configuration.db_config['username']} --password=XXXXXXXXX -D #{temp_db}")
     system("mysqldump -h #{self.configuration.db_config['host']} -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} --no-data #{self.configuration.db_config['database']} #{self.configuration.tables_to_truncate.keys.join(' ')} | mysql -h #{self.configuration.db_config['host']}  -u #{self.configuration.db_config['username']} --password=#{self.configuration.db_config['password']} -D #{temp_db}")
     if $?.exitstatus == 0
       self.log("Temp DB created and populated")
