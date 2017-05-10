@@ -3,5 +3,7 @@ language: ruby
 cache: bundler
 rvm:
   - 2.2.1
+before_install:
+  - gem install bundler -v 1.9.1
 before_script:
   - mkdir tmp
